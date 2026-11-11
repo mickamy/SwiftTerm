@@ -2326,6 +2326,7 @@ open class TerminalView: NSView, NSUserInterfaceValidations, TerminalDelegate {
             // Our subclass fills the background per-line-fragment instead of
             // over the whole frame, so turn off NSTextView's built-in fill.
             tv.drawsBackground = false
+            tv.layoutManager?.delegate = tv
             addSubview(tv, positioned: .above, relativeTo: nil)
             markedTextOverlay = tv
             overlay = tv
@@ -2342,6 +2343,8 @@ open class TerminalView: NSView, NSUserInterfaceValidations, TerminalDelegate {
 
         // Match terminal line metrics so wrapped lines line up with terminal rows.
         let lineHeight = cellDimension.height
+        overlay.lineHeight = lineHeight
+        overlay.baselineFromTop = lineHeight - baselineOffset
         let para = NSMutableParagraphStyle()
         para.minimumLineHeight = lineHeight
         para.maximumLineHeight = lineHeight
@@ -4391,9 +4394,29 @@ extension TerminalViewDelegate {
 /// portion occupied by pre-existing terminal text (e.g. the prompt), so this
 /// drawing strategy leaves that area untouched while still covering wrapped
 /// lines below.
-final class DictationOverlayTextView: NSTextView {
+final class DictationOverlayTextView: NSTextView, @preconcurrency NSLayoutManagerDelegate {
     var overlayBackgroundColor: NSColor = .clear {
         didSet { needsDisplay = true }
+    }
+
+    /// The terminal's row height and baseline, which every line of the overlay
+    /// keeps. TextKit would otherwise place the baseline from the fonts on the
+    /// line, and kana alone come from a fallback font with a taller ascent than
+    /// the terminal font, so the text jumped as romaji came and went.
+    var lineHeight: CGFloat = 0
+    var baselineFromTop: CGFloat = 0
+
+    func layoutManager(_ layoutManager: NSLayoutManager,
+                       shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
+                       lineFragmentUsedRect: UnsafeMutablePointer<NSRect>,
+                       baselineOffset: UnsafeMutablePointer<CGFloat>,
+                       in textContainer: NSTextContainer,
+                       forGlyphRange glyphRange: NSRange) -> Bool {
+        guard lineHeight > 0 else { return false }
+        lineFragmentRect.pointee.size.height = lineHeight
+        lineFragmentUsedRect.pointee.size.height = lineHeight
+        baselineOffset.pointee = baselineFromTop
+        return true
     }
 
     override func draw(_ dirtyRect: NSRect) {
